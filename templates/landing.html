@@ -2,6 +2,78 @@
 
 {% block title %}Spendly — Track Every Rupee{% endblock %}
 
+{% block head %}
+<style>
+    .video-modal {
+        position: fixed;
+        inset: 0;
+        z-index: 1000;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        padding: 1.5rem;
+    }
+
+    .video-modal.is-open { display: flex; }
+
+    .video-modal-overlay {
+        position: absolute;
+        inset: 0;
+        background: rgba(15, 15, 15, 0.72);
+    }
+
+    .video-modal-dialog {
+        position: relative;
+        width: 100%;
+        max-width: 880px;
+        background: #000;
+        border-radius: var(--radius-md);
+        overflow: hidden;
+        box-shadow: 0 24px 70px rgba(0, 0, 0, 0.45);
+    }
+
+    .video-modal-frame {
+        position: relative;
+        width: 100%;
+        padding-top: 56.25%; /* 16:9 aspect ratio */
+    }
+
+    .video-modal-frame iframe {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        border: 0;
+    }
+
+    .video-modal-close {
+        position: absolute;
+        top: 0.75rem;
+        right: 0.75rem;
+        z-index: 2;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 2.25rem;
+        height: 2.25rem;
+        background: rgba(0, 0, 0, 0.55);
+        color: #fff;
+        border: none;
+        border-radius: 50%;
+        cursor: pointer;
+        padding: 0;
+        transition: background 0.2s, transform 0.2s;
+    }
+
+    .video-modal-close:hover {
+        background: rgba(0, 0, 0, 0.8);
+        transform: scale(1.05);
+    }
+
+    .video-modal-close svg { display: block; }
+</style>
+{% endblock %}
+
 {% block content %}
 
 <section class="hero">
@@ -19,7 +91,7 @@
         </p>
         <div class="hero-actions">
             <a href="{{ url_for('register') }}" class="btn-primary">Create free account</a>
-            <a href="{{ url_for('login') }}" class="btn-dark">See how it works</a>
+            <button type="button" class="btn-dark" id="howItWorksBtn">See how it works</button>
         </div>
     </div>
 
@@ -97,4 +169,78 @@
     </div>
 </section>
 
+<div class="video-modal" id="videoModal" aria-hidden="true">
+    <div class="video-modal-overlay" data-close></div>
+    <div class="video-modal-dialog" role="dialog" aria-modal="true" aria-label="How Spendly works">
+        <button type="button" class="video-modal-close" data-close aria-label="Close video">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none"
+                 stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+            </svg>
+        </button>
+        <div class="video-modal-frame">
+            <iframe id="videoFrame"
+                    src=""
+                    title="How Spendly works"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowfullscreen></iframe>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+    (function () {
+        // Placeholder video — replace this URL later. Keep autoplay=1 so it
+        // starts when the modal opens.
+        var VIDEO_SRC = "https://www.youtube.com/embed/dQw4w9WgXcQ?autoplay=1&rel=0";
+
+        var modal   = document.getElementById("videoModal");
+        var frame   = document.getElementById("videoFrame");
+        var openBtn = document.getElementById("howItWorksBtn");
+
+        function openModal() {
+            frame.src = VIDEO_SRC;
+            modal.classList.add("is-open");
+            modal.setAttribute("aria-hidden", "false");
+            document.body.style.overflow = "hidden";
+        }
+
+        function closeModal() {
+            modal.classList.remove("is-open");
+            modal.setAttribute("aria-hidden", "true");
+            // Clearing the src unloads the iframe, which stops playback so the
+            // audio/video doesn't keep running in the background.
+            frame.src = "";
+            document.body.style.overflow = "";
+        }
+
+        if (openBtn) {
+            openBtn.addEventListener("click", function (e) {
+                e.preventDefault();
+                openModal();
+            });
+        }
+
+        // Close on the ✕ button or on any element flagged with data-close
+        // (the overlay behind the dialog), i.e. clicking outside the video.
+        modal.addEventListener("click", function (e) {
+            // closest() so clicks on the SVG icon inside the close button
+            // (or the overlay) still resolve to the [data-close] element.
+            if (e.target.closest("[data-close]")) {
+                closeModal();
+            }
+        });
+
+        // Convenience: Escape key also closes the modal.
+        document.addEventListener("keydown", function (e) {
+            if (e.key === "Escape" && modal.classList.contains("is-open")) {
+                closeModal();
+            }
+        });
+    })();
+</script>
 {% endblock %}

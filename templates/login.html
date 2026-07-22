@@ -13,6 +13,10 @@
         </div>
 
         <div class="auth-card">
+            {% if request.args.get('registered') %}
+            <div class="auth-success">Account created. Sign in to continue.</div>
+            {% endif %}
+
             {% if error %}
             <div class="auth-error">{{ error }}</div>
             {% endif %}

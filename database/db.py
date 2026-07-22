@@ -14,8 +14,9 @@ before the first request. You can also rebuild it directly:
 No ORM, no string-formatted SQL — every query below is parameterized.
 """
 
+import os
 import sqlite3
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 from werkzeug.security import generate_password_hash
@@ -23,7 +24,15 @@ from werkzeug.security import generate_password_hash
 # Resolved from this file's location, not the current working directory, so
 # the database always lands in the project root next to app.py no matter
 # where you run python from. The file is gitignored.
-DB_PATH = Path(__file__).resolve().parent.parent / "spendly.db"
+#
+# app.py builds and seeds the database at import time, which means anything
+# that imports app — a test module wanting a Flask test client, say — would
+# otherwise write to your real development data. Setting SPENDLY_DB points
+# this elsewhere; tests/conftest.py uses it to redirect to a temp file.
+DB_PATH = Path(
+    os.environ.get("SPENDLY_DB")
+    or Path(__file__).resolve().parent.parent / "spendly.db"
+)
 
 # The only category values the app uses. Later steps populate their dropdowns
 # from this list, so keep the two in sync.
@@ -48,7 +57,7 @@ CREATE TABLE IF NOT EXISTS users (
     name          TEXT NOT NULL,
     email         TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
-    created_at    TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+    created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS expenses (
@@ -58,7 +67,7 @@ CREATE TABLE IF NOT EXISTS expenses (
     category    TEXT    NOT NULL,
     date        TEXT    NOT NULL,
     description TEXT,
-    created_at  TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 """
 
@@ -74,9 +83,12 @@ CREATE TABLE IF NOT EXISTS expenses (
 #                                correctly in SQLite, so BETWEEN works for the
 #                                date-range filtering the landing page promises.
 #   amount is REAL             — rupees as a float, not paise as an integer.
-#   created_at uses 'localtime'— datetime('now') alone returns UTC, which would
-#                                show an IST user a timestamp five and a half
-#                                hours behind the clock on their wall.
+#   created_at is UTC          — datetime('now') returns UTC, so a stored value
+#                                reads five and a half hours behind an IST wall
+#                                clock. That is deliberate: storing local time
+#                                would silently mix zones the day this runs on a
+#                                server set to anything but IST. Convert on the
+#                                way out with to_local(), never on the way in.
 #
 # Changing this block does not alter a database that already exists — the
 # CREATE statements are IF NOT EXISTS. Delete spendly.db and restart the app
@@ -172,7 +184,15 @@ def seed_db():
     """
     conn = get_db()
     try:
+        # BEGIN IMMEDIATE takes the write lock up front, so the check below and
+        # the inserts that follow are one atomic step. Without it two processes
+        # starting together — which is exactly what the debug reloader does —
+        # can both see an empty table and both try to insert the demo user, and
+        # the loser dies on the UNIQUE constraint.
+        conn.execute("BEGIN IMMEDIATE")
+
         if conn.execute("SELECT COUNT(*) FROM users").fetchone()[0] > 0:
+            conn.rollback()
             return  # already seeded
 
         cursor = conn.execute(
@@ -209,6 +229,17 @@ def seed_db():
 # ------------------------------------------------------------------ #
 # Helpers                                                             #
 # ------------------------------------------------------------------ #
+
+def to_local(timestamp):
+    """Convert a stored UTC 'YYYY-MM-DD HH:MM:SS' string to local time.
+
+    created_at columns hold UTC. Anything that shows a timestamp to a user —
+    the profile page in Step 4, for one — should run it through here first, so
+    an IST reader sees 12:10 rather than 06:40.
+    """
+    utc = datetime.fromisoformat(timestamp).replace(tzinfo=timezone.utc)
+    return utc.astimezone()
+
 
 def format_inr(amount):
     """Format a rupee amount with Indian digit grouping: 118240 -> '₹1,18,240'.

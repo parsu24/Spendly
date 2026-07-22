@@ -1,6 +1,20 @@
 from flask import Flask, render_template
 
+from database.db import get_db, init_db, seed_db  # noqa: F401  (get_db lands in Step 2)
+
 app = Flask(__name__)
+
+
+# ------------------------------------------------------------------ #
+# Startup                                                            #
+# ------------------------------------------------------------------ #
+
+# Build the schema and load development data before any request is served.
+# Both calls are idempotent, so the reloader running this twice in debug
+# mode is harmless.
+with app.app_context():
+    init_db()
+    seed_db()
 
 
 # ------------------------------------------------------------------ #

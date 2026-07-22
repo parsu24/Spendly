@@ -1,7 +1,10 @@
 """Tests for the Step 1 database layer."""
 
+import importlib
+import os
 import sqlite3
-from datetime import date, datetime
+from datetime import date, datetime, timezone
+from pathlib import Path
 
 import pytest
 
@@ -87,8 +90,25 @@ def test_foreign_keys_pragma_is_on(temp_db):
 
 
 def test_db_file_is_named_spendly():
-    """Deliberately skips the temp_db fixture to assert the real path."""
-    assert db.DB_PATH.name == "spendly.db"
+    """Deliberately skips the temp_db fixture to assert the configured path."""
+    assert db.DB_PATH.name in ("spendly.db", "spendly-test.db")
+
+
+def test_spendly_db_env_var_redirects_the_path():
+    """conftest.py relies on this to keep the test run off the dev database."""
+    assert db.DB_PATH == Path(os.environ["SPENDLY_DB"])
+    assert db.DB_PATH.name != "spendly.db"
+
+
+def test_importing_app_does_not_touch_the_development_database():
+    """app.py seeds at import time; that must land in the redirected file."""
+    dev_db = Path(__file__).resolve().parent.parent / "spendly.db"
+    before = dev_db.stat().st_mtime if dev_db.exists() else None
+
+    importlib.import_module("app")
+
+    after = dev_db.stat().st_mtime if dev_db.exists() else None
+    assert before == after, "importing app wrote to the real spendly.db"
 
 
 # ------------------------------------------------------------------ #
@@ -222,8 +242,8 @@ def test_seeded_dates_are_distinct(temp_db):
     assert len(set(dates)) == len(dates)
 
 
-def test_created_at_is_local_time_not_utc(temp_db):
-    """datetime('now') would drift from the wall clock by the UTC offset."""
+def test_created_at_is_stored_as_utc(temp_db):
+    """Storing local time would silently mix zones across machines."""
     conn = temp_db.get_db()
     try:
         add_user(conn)
@@ -232,8 +252,31 @@ def test_created_at_is_local_time_not_utc(temp_db):
     finally:
         conn.close()
 
-    written = datetime.fromisoformat(stamp)
-    assert abs((datetime.now() - written).total_seconds()) < 120
+    written = datetime.fromisoformat(stamp).replace(tzinfo=timezone.utc)
+    assert abs((datetime.now(timezone.utc) - written).total_seconds()) < 120
+
+
+def test_to_local_converts_a_stored_timestamp(temp_db):
+    conn = temp_db.get_db()
+    try:
+        add_user(conn)
+        conn.commit()
+        stamp = conn.execute("SELECT created_at FROM users").fetchone()["created_at"]
+    finally:
+        conn.close()
+
+    local = temp_db.to_local(stamp)
+    assert local.tzinfo is not None                      # aware, not naive
+    assert abs((datetime.now().astimezone() - local).total_seconds()) < 120
+
+
+def test_to_local_applies_the_utc_offset():
+    """A fixed UTC instant must come back as the same instant, not the same clock face."""
+    local = db.to_local("2026-07-22 06:40:00")
+    assert local.utcoffset() is not None
+    assert local.replace(tzinfo=None) == (
+        datetime(2026, 7, 22, 6, 40) + local.utcoffset()
+    )
 
 
 # ------------------------------------------------------------------ #

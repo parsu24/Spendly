@@ -1,11 +1,17 @@
+import os
 import sqlite3
 
-from flask import Flask, redirect, render_template, request, url_for
-from werkzeug.security import generate_password_hash
+from flask import Flask, redirect, render_template, request, session, url_for
+from werkzeug.security import check_password_hash, generate_password_hash
 
 from database.db import get_db, init_db, seed_db
 
 app = Flask(__name__)
+
+# Signs the session cookie — without it Flask refuses to touch `session`.
+# The fallback keeps development frictionless; a real deployment must set
+# SECRET_KEY in the environment so cookies cannot be forged.
+app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-secret-change-me")
 
 
 # ------------------------------------------------------------------ #
@@ -96,9 +102,40 @@ def register():
     return redirect(url_for("login", registered=1))
 
 
-@app.route("/login")
+@app.route("/login", methods=["GET", "POST"])
 def login():
-    return render_template("login.html")
+    if request.method == "GET":
+        # Already signed in — no reason to show the form again.
+        if session.get("user_id"):
+            return redirect(url_for("landing"))
+        return render_template("login.html")
+
+    # Normalised the same way registration stores it, so an account created as
+    # demo@spendly.com signs in as DEMO@Spendly.com too.
+    email = request.form.get("email", "").strip().lower()
+    password = request.form.get("password", "")   # never strip a password
+
+    conn = get_db()
+    try:
+        user = conn.execute(
+            "SELECT id, name, password_hash FROM users WHERE email = ?", (email,)
+        ).fetchone()
+    finally:
+        conn.close()
+
+    # One message for both an unknown email and a wrong password: telling them
+    # apart would reveal which addresses have accounts. check_password_hash is
+    # the only correct check — the hash is never compared in SQL.
+    if user is None or not check_password_hash(user["password_hash"], password):
+        return render_template(
+            "login.html",
+            error="Incorrect email or password.",
+            email=email,
+        )
+
+    session["user_id"] = user["id"]
+    session["name"] = user["name"]
+    return redirect(url_for("landing"))
 
 
 @app.route("/terms")
@@ -111,13 +148,16 @@ def privacy():
     return render_template("privacy.html")
 
 
+@app.route("/logout")
+def logout():
+    # Drop every key, so this is harmless when no one is signed in.
+    session.clear()
+    return redirect(url_for("landing"))
+
+
 # ------------------------------------------------------------------ #
 # Placeholder routes — students will implement these                  #
 # ------------------------------------------------------------------ #
-
-@app.route("/logout")
-def logout():
-    return "Logout — coming in Step 3"
 
 
 @app.route("/profile")

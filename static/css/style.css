@@ -103,6 +103,8 @@ a { color: inherit; text-decoration: none; }
 .nav-links a { color: var(--ink-muted); transition: color 0.2s; }
 .nav-links a:hover { color: var(--ink); }
 
+.nav-user { color: var(--ink); font-weight: 600; }
+
 .nav-cta {
     background: var(--ink) !important;
     color: var(--paper) !important;
@@ -655,7 +657,7 @@ a { color: inherit; text-decoration: none; }
 }
 
 @media (max-width: 600px) {
-    .nav-links a:not(.nav-cta) { display: none; }
+    .nav-links a:not(.nav-cta):not(.nav-logout) { display: none; }
     .hero { padding: 3rem 1rem 2rem; }
     .hero-actions { flex-direction: column; }
     .hero-actions .btn-primary,

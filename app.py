@@ -1,10 +1,11 @@
 import os
 import sqlite3
+from datetime import date
 
 from flask import Flask, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from database.db import get_db, init_db, seed_db
+from database.db import format_inr, get_db, init_db, seed_db, to_local
 
 app = Flask(__name__)
 
@@ -12,6 +13,11 @@ app = Flask(__name__)
 # The fallback keeps development frictionless; a real deployment must set
 # SECRET_KEY in the environment so cookies cannot be forged.
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-secret-change-me")
+
+# Rupee formatting lives in exactly one place. Templates write `{{ value | inr }}`
+# rather than building a "₹" string by hand, so Indian digit grouping stays
+# correct everywhere and later steps inherit it for free.
+app.jinja_env.filters["inr"] = format_inr
 
 
 # ------------------------------------------------------------------ #
@@ -42,6 +48,11 @@ EMAIL_TAKEN = "An account with that email already exists."
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
+    # Guards both methods: someone already signed in has no reason to open the
+    # form, and no reason to be able to POST past it either.
+    if session.get("user_id"):
+        return redirect(url_for("profile"))
+
     if request.method == "GET":
         return render_template("register.html")
 
@@ -107,7 +118,7 @@ def login():
     if request.method == "GET":
         # Already signed in — no reason to show the form again.
         if session.get("user_id"):
-            return redirect(url_for("landing"))
+            return redirect(url_for("profile"))
         return render_template("login.html")
 
     # Normalised the same way registration stores it, so an account created as
@@ -135,7 +146,79 @@ def login():
 
     session["user_id"] = user["id"]
     session["name"] = user["name"]
-    return redirect(url_for("landing"))
+    # Signing in drops you on your own page, not back on the marketing copy.
+    return redirect(url_for("profile"))
+
+
+@app.route("/profile")
+def profile():
+    # The first route that requires a signed-in user. Every logged-in feature
+    # from here on repeats this shape: read the identity from the session, and
+    # scope every query to it — never to anything the visitor can type.
+    user_id = session.get("user_id")
+    if not user_id:
+        return redirect(url_for("login"))
+
+    conn = get_db()
+    try:
+        user = conn.execute(
+            "SELECT name, email, created_at FROM users WHERE id = ?", (user_id,)
+        ).fetchone()
+
+        if user is None:
+            # A cookie left over from a database that has since been rebuilt.
+            # Clearing it turns a confusing half-empty page into a fresh login.
+            session.clear()
+            return redirect(url_for("login"))
+
+        summary = conn.execute(
+            "SELECT COUNT(*) AS count, COALESCE(SUM(amount), 0) AS total"
+            "  FROM expenses WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+
+        # strftime('%Y-%m', date) reduces the stored 'YYYY-MM-DD' to its month,
+        # which is cheaper to get right than hand-rolling a month-end boundary.
+        month_total = conn.execute(
+            "SELECT COALESCE(SUM(amount), 0) FROM expenses"
+            "  WHERE user_id = ? AND strftime('%Y-%m', date) = ?",
+            (user_id, date.today().strftime("%Y-%m")),
+        ).fetchone()[0]
+
+        breakdown = conn.execute(
+            "SELECT category, SUM(amount) AS total FROM expenses"
+            "  WHERE user_id = ? GROUP BY category ORDER BY total DESC",
+            (user_id,),
+        ).fetchall()
+    finally:
+        # `with get_db() as conn` commits but does not close; see the get_db()
+        # docstring. Closing by hand is the only way to release the file.
+        conn.close()
+
+    # Bars are measured against the largest category rather than the total, so
+    # the top one fills its track and the rest stay readable next to it.
+    largest = breakdown[0]["total"] if breakdown else 0
+    categories = [
+        {
+            "name": row["category"],
+            "total": row["total"],
+            "width": round(row["total"] / largest * 100, 1) if largest else 0,
+        }
+        for row in breakdown
+    ]
+
+    return render_template(
+        "profile.html",
+        user=user,
+        # created_at is stored UTC; to_local() is what keeps an IST reader from
+        # seeing a join date five and a half hours early.
+        member_since=to_local(user["created_at"]).strftime("%d %B %Y"),
+        total=summary["total"],
+        count=summary["count"],
+        month_total=month_total,
+        categories=categories,
+        top_category=categories[0]["name"] if categories else None,
+    )
 
 
 @app.route("/terms")
@@ -158,11 +241,6 @@ def logout():
 # ------------------------------------------------------------------ #
 # Placeholder routes — students will implement these                  #
 # ------------------------------------------------------------------ #
-
-
-@app.route("/profile")
-def profile():
-    return "Profile page — coming in Step 4"
 
 
 @app.route("/expenses/add")

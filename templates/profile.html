@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+
+{% block title %}Profile — Spendly{% endblock %}
+
+{% block content %}
+
+<section class="profile">
+
+    <div class="profile-header">
+        <div class="profile-monogram">{{ user.name[:1]|upper }}</div>
+        <div>
+            <h1 class="profile-name">{{ user.name }}</h1>
+            <p class="profile-email">{{ user.email }}</p>
+            <p class="profile-meta">Member since {{ member_since }}</p>
+        </div>
+    </div>
+
+    {% if count %}
+    <div class="profile-stats">
+        <div class="dash-stat">
+            <span class="dash-stat-label">Total spent</span>
+            <span class="dash-stat-value">{{ total | inr }}</span>
+        </div>
+        <div class="dash-stat">
+            <span class="dash-stat-label">This month</span>
+            <span class="dash-stat-value">{{ month_total | inr }}</span>
+        </div>
+        <div class="dash-stat">
+            <span class="dash-stat-label">Expenses recorded</span>
+            <span class="dash-stat-value">{{ count }}</span>
+        </div>
+        <div class="dash-stat">
+            <span class="dash-stat-label">Top category</span>
+            <span class="dash-stat-value">{{ top_category }}</span>
+        </div>
+    </div>
+
+    <div class="profile-card">
+        <h2 class="profile-card-title">Where your money goes</h2>
+        {# One series, so no legend — every bar wears the same green and the
+           amount beside it is the direct label. #}
+        {% for category in categories %}
+        <div class="profile-bar-row">
+            <span class="profile-bar-label">{{ category.name }}</span>
+            <div class="dash-bar-track">
+                <div class="dash-bar profile-bar" style="width: {{ category.width }}%"></div>
+            </div>
+            <span class="profile-bar-value">{{ category.total | inr }}</span>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="profile-empty">
+        <p class="profile-empty-title">No expenses yet</p>
+        <p class="profile-empty-body">
+            Once you start logging what you spend, your totals and a
+            category breakdown will appear here.
+        </p>
+    </div>
+    {% endif %}
+
+</section>
+
+{% endblock %}

@@ -103,7 +103,9 @@ a { color: inherit; text-decoration: none; }
 .nav-links a { color: var(--ink-muted); transition: color 0.2s; }
 .nav-links a:hover { color: var(--ink); }
 
-.nav-user { color: var(--ink); font-weight: 600; }
+/* Scoped to .nav-links so it outranks the `.nav-links a` colour above — the
+   greeting is a link to the profile now, not a plain span. */
+.nav-links .nav-user { color: var(--ink); font-weight: 600; }
 
 .nav-cta {
     background: var(--ink) !important;
@@ -600,6 +602,127 @@ a { color: inherit; text-decoration: none; }
 .auth-switch a:hover { text-decoration: underline; }
 
 /* ------------------------------------------------------------------ */
+/* Profile page                                                        */
+/* ------------------------------------------------------------------ */
+
+.profile {
+    max-width: var(--max-width);
+    margin: 0 auto;
+    padding: 3rem 2rem 4rem;
+}
+
+.profile-header {
+    display: flex;
+    align-items: center;
+    gap: 1.25rem;
+    margin-bottom: 2rem;
+}
+
+.profile-monogram {
+    flex-shrink: 0;
+    width: 64px;
+    height: 64px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--accent-light);
+    color: var(--accent);
+    border-radius: 50%;
+    font-family: var(--font-display);
+    font-size: 1.75rem;
+    line-height: 1;
+}
+
+.profile-name {
+    font-family: var(--font-display);
+    font-size: 2rem;
+    color: var(--ink);
+    line-height: 1.2;
+}
+
+.profile-email {
+    font-size: 0.95rem;
+    color: var(--ink-muted);
+}
+
+.profile-meta {
+    font-size: 0.85rem;
+    color: var(--ink-faint);
+}
+
+.profile-stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.profile-card {
+    background: var(--paper-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 1.75rem;
+}
+
+.profile-card-title {
+    font-family: var(--font-body);
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: var(--ink);
+    margin-bottom: 1.5rem;
+}
+
+.profile-bar-row {
+    display: grid;
+    grid-template-columns: 128px 1fr auto;
+    align-items: center;
+    gap: 1.25rem;
+    margin-bottom: 1.1rem;
+}
+
+.profile-bar-row:last-child { margin-bottom: 0; }
+
+.profile-bar-label {
+    font-size: 0.95rem;
+    color: var(--ink-soft);
+}
+
+/* One series, so every bar carries the same hue — the length is what encodes
+   the amount, and spending a second channel on it would say nothing new. */
+.profile-bar { background: var(--accent); }
+
+.profile-bar-value {
+    font-size: 0.9rem;
+    color: var(--ink-soft);
+    text-align: right;
+    /* A column of numbers is exactly where equal-width digits belong; the
+       larger standalone values in the stat cards keep proportional figures. */
+    font-variant-numeric: tabular-nums;
+}
+
+.profile-empty {
+    background: var(--paper-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 3rem 2rem;
+    text-align: center;
+}
+
+.profile-empty-title {
+    font-size: 1.15rem;
+    font-weight: 600;
+    color: var(--ink);
+    margin-bottom: 0.5rem;
+}
+
+.profile-empty-body {
+    font-size: 0.95rem;
+    color: var(--ink-muted);
+    max-width: 380px;
+    margin: 0 auto;
+}
+
+/* ------------------------------------------------------------------ */
 /* Footer                                                              */
 /* ------------------------------------------------------------------ */
 
@@ -654,11 +777,19 @@ a { color: inherit; text-decoration: none; }
     .dash-stats { grid-template-columns: 1fr; }
 
     .features-inner { grid-template-columns: 1fr; }
+
+    .profile-stats { grid-template-columns: repeat(2, 1fr); }
 }
 
 @media (max-width: 600px) {
-    .nav-links a:not(.nav-cta):not(.nav-logout) { display: none; }
+    /* .nav-user is exempt: it became a link in Step 4 and would otherwise be
+       swept up by this rule, hiding the signed-in name on phones. */
+    .nav-links a:not(.nav-cta):not(.nav-logout):not(.nav-user) { display: none; }
     .hero { padding: 3rem 1rem 2rem; }
+
+    .profile { padding: 2rem 1rem 3rem; }
+    .profile-stats { grid-template-columns: 1fr; }
+    .profile-bar-row { grid-template-columns: 90px 1fr auto; gap: 0.75rem; }
     .hero-actions { flex-direction: column; }
     .hero-actions .btn-primary,
     .hero-actions .btn-dark { width: 100%; text-align: center; }

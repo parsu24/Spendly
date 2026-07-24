@@ -44,10 +44,10 @@ def test_get_login_still_renders(client):
     assert b"Welcome back" in response.data
 
 
-def test_valid_login_redirects_to_landing(client):
+def test_valid_login_redirects_to_the_profile(client):
     response = login(client)
     assert response.status_code == 302
-    assert response.headers["Location"] in ("/", "http://localhost/")
+    assert response.headers["Location"] in ("/profile", "http://localhost/profile")
 
 
 def test_valid_login_sets_the_session(client):
@@ -138,8 +138,31 @@ def test_logout_while_logged_out_is_harmless(client):
     assert response.headers["Location"] in ("/", "http://localhost/")
 
 
-def test_get_login_while_logged_in_redirects_home(client):
+def test_get_login_while_logged_in_redirects_to_the_profile(client):
     login(client)
     response = client.get("/login")
     assert response.status_code == 302
-    assert response.headers["Location"] in ("/", "http://localhost/")
+    assert response.headers["Location"] in ("/profile", "http://localhost/profile")
+
+
+def test_register_while_logged_in_redirects_to_the_profile(client):
+    """Both methods are guarded — the form is skipped and a POST cannot get past it."""
+    login(client)
+
+    assert client.get("/register").headers["Location"].endswith("/profile")
+
+    response = client.post(
+        "/register",
+        data={"name": "Someone Else", "email": "someone@spendly.com",
+              "password": "a-good-password"},
+    )
+    assert response.headers["Location"].endswith("/profile")
+
+    # The POST must not have created the account it was carrying.
+    conn = db.get_db()
+    try:
+        assert conn.execute(
+            "SELECT id FROM users WHERE email = ?", ("someone@spendly.com",)
+        ).fetchone() is None
+    finally:
+        conn.close()

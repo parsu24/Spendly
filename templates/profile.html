@@ -6,6 +6,18 @@
 
 <section class="profile">
 
+    {# Read straight from the query string, the way login.html reads
+       ?registered=1 — a notice that costs base.html no changes. #}
+    {% if request.args.get('updated') %}
+    <div class="auth-success">Your profile has been updated.</div>
+    {% endif %}
+
+    {# Its own block, not an {% elif %}: the two notices are set by two
+       different routes and neither should hide the other. #}
+    {% if request.args.get('password') %}
+    <div class="auth-success">Your password has been changed.</div>
+    {% endif %}
+
     <div class="profile-header">
         <div class="profile-monogram">{{ user.name[:1]|upper }}</div>
         <div>
@@ -13,6 +25,13 @@
             <p class="profile-email">{{ user.email }}</p>
             <p class="profile-meta">Member since {{ member_since }}</p>
         </div>
+    </div>
+
+    {# Above the {% if count %} split, so the controls are there in the empty
+       state too — a new account is exactly when a name gets corrected. #}
+    <div class="profile-actions">
+        <a class="btn-ghost" href="{{ url_for('profile_edit') }}">Edit profile</a>
+        <a class="btn-ghost" href="{{ url_for('profile_password') }}">Change password</a>
     </div>
 
     {% if count %}
@@ -58,6 +77,12 @@
         </p>
     </div>
     {% endif %}
+
+    {# At the foot and on its own, well away from .profile-actions: deleting the
+       account is not an everyday control and should not sit beside them. #}
+    <p class="profile-danger-link">
+        <a href="{{ url_for('profile_delete') }}">Delete account</a>
+    </p>
 
 </section>
 

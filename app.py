@@ -2,7 +2,7 @@ import os
 import sqlite3
 from datetime import date
 
-from flask import Flask, redirect, render_template, request, session, url_for
+from flask import Flask, abort, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from database.db import format_inr, get_db, init_db, seed_db, to_local
@@ -151,13 +151,39 @@ def login():
 
 
 @app.route("/profile")
-def profile():
+@app.route("/profile/<int:requested_id>")
+def profile(requested_id=None):
+    # Two URLs, one page: /profile is the canonical address, and
+    # /profile/<id> is the dynamic form — the first route in the app whose
+    # path carries a value. `<int:...>` matches digits only, so it never
+    # shadows the static /profile/edit, /profile/password or /profile/delete
+    # rules below.
+    #
+    # The parameter is named `requested_id` rather than `user_id` on purpose.
+    # It is a number a visitor typed, and the rest of this function must not
+    # be able to reach for it by the name it uses for identity — every query
+    # below stays bound to the session.
+
     # The first route that requires a signed-in user. Every logged-in feature
     # from here on repeats this shape: read the identity from the session, and
     # scope every query to it — never to anything the visitor can type.
     user_id = session.get("user_id")
     if not user_id:
         return redirect(url_for("login"))
+
+    # A URL id is a request, not a claim. It is allowed to name the account
+    # already signed in and nothing else, which leaves the id in the address
+    # bar as a label for the page rather than a way to choose whose page it is.
+    # Drop this check and /profile/2 becomes every other account's name, email
+    # and spending — the classic insecure-direct-object-reference bug, and the
+    # reason specs 04 and 05 rule out an id-driven route that trusts its input.
+    #
+    # 404 rather than 403: "forbidden" would confirm that account exists, so a
+    # stranger could walk the ids and learn how many users there are. "Not
+    # found" is the same answer for an id that is somebody else's and an id
+    # that was never issued, and it tells them apart for nobody.
+    if requested_id is not None and requested_id != user_id:
+        abort(404)
 
     conn = get_db()
     try:

@@ -168,3 +168,66 @@ def test_a_new_account_sees_its_own_empty_profile(client):
     assert "No expenses yet" in body
     assert SEEDED_TOTAL not in body
     assert "Demo User" not in body
+
+
+# ------------------------------------------------------------------ #
+# The dynamic /profile/<id> route                                     #
+# ------------------------------------------------------------------ #
+
+def test_dynamic_route_renders_your_own_profile(client):
+    """/profile/<your id> is the same page as /profile."""
+    login(client)
+    with client.session_transaction() as sess:
+        user_id = sess["user_id"]
+
+    response = client.get(f"/profile/{user_id}")
+    assert response.status_code == 200
+    assert response.get_data(as_text=True) == profile_text(client)
+
+
+def test_dynamic_route_requires_login(client):
+    """Guarded before the id is looked at, like every other profile route."""
+    response = client.get("/profile/1")
+    assert response.status_code == 302
+    assert "/login" in response.headers["Location"]
+
+
+def test_dynamic_route_refuses_another_users_id(client):
+    """The id in the URL may name the session's account and nothing else."""
+    register(client, "Asha Rao", "asha@spendly.com")
+    login(client)                      # signed in as the demo account
+    with client.session_transaction() as sess:
+        mine = sess["user_id"]
+
+    other = mine + 1                   # the account registered just above
+    response = client.get(f"/profile/{other}")
+    assert response.status_code == 404
+
+
+def test_refused_id_leaks_nothing_about_that_account(client):
+    """404, and a body that does not confirm the account exists."""
+    register(client, "Asha Rao", "asha@spendly.com")
+    login(client)
+    with client.session_transaction() as sess:
+        other = sess["user_id"] + 1
+
+    body = client.get(f"/profile/{other}").get_data(as_text=True)
+    assert "Asha Rao" not in body
+    assert "asha@spendly.com" not in body
+
+
+def test_unknown_id_is_indistinguishable_from_a_forbidden_one(client):
+    """An id nobody holds answers exactly as another user's id does."""
+    login(client)
+    with client.session_transaction() as sess:
+        mine = sess["user_id"]
+
+    assert client.get(f"/profile/{mine + 999}").status_code == 404
+
+
+def test_dynamic_route_does_not_shadow_the_static_subroutes(client):
+    """<int:...> matches digits only, so /profile/edit still reaches its form."""
+    login(client)
+    response = client.get("/profile/edit")
+    assert response.status_code == 200
+    assert "Edit" in response.get_data(as_text=True)

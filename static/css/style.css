@@ -722,6 +722,95 @@ a { color: inherit; text-decoration: none; }
     margin: 0 auto;
 }
 
+/* Wraps rather than shrinks, so further account links can be added to the row
+   without earning themselves an entry in the responsive block. */
+.profile-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-bottom: 2rem;
+}
+
+/* The auth card, reused for the account sub-forms. max-width rather than a
+   fixed width means it is already fluid below 440px — no media query needed. */
+.profile-form-card {
+    background: var(--paper-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 2rem;
+    max-width: var(--auth-width);
+    margin-top: 1.5rem;
+}
+
+.profile-form-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-top: 0.5rem;
+}
+
+/* .btn-submit is width: 100% for the full-width auth forms; left alone it
+   would push the Cancel link onto a line of its own. */
+.profile-form-actions .btn-submit { width: auto; }
+
+/* A rule attached to the field above it, so the negative margin pulls it up
+   out of .form-group's 1.25rem gap and it reads as part of that input. */
+.profile-form-hint {
+    font-size: 0.8rem;
+    color: var(--ink-muted);
+    margin: 0.4rem 0 -0.4rem;
+}
+
+/* The confirmation screen's consequence box. Tinted rather than shouted: the
+   sentences inside are doing the warning, the colour only frames them. */
+.profile-danger {
+    background: var(--danger-light);
+    border: 1px solid var(--danger);
+    border-left-width: 3px;
+    border-radius: var(--radius-sm);
+    padding: 1rem 1.25rem;
+    max-width: var(--auth-width);
+    margin-top: 1.5rem;
+    font-size: 0.9rem;
+    color: var(--ink-soft);
+}
+
+.profile-danger p + p { margin-top: 0.5rem; }
+
+/* The geometry of .btn-submit, in --danger and sized to its own label so the
+   Cancel link can sit beside it. .btn-submit itself is left alone — it is the
+   affirmative button on every other form in the app. */
+.btn-danger {
+    width: auto;
+    padding: 0.7rem 1.25rem;
+    background: var(--danger);
+    color: var(--paper);
+    border: none;
+    border-radius: var(--radius-sm);
+    font-family: var(--font-body);
+    font-size: 0.95rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.2s;
+    margin-top: 0.5rem;
+}
+
+.btn-danger:hover { background: var(--ink); }
+
+/* Quiet by design, and separated by a rule: the way out of the account belongs
+   at the foot of the page, not competing with the everyday controls. */
+.profile-danger-link {
+    margin-top: 2.5rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--border);
+    font-size: 0.85rem;
+    color: var(--ink-faint);
+}
+
+.profile-danger-link a { color: var(--danger); }
+
+.profile-danger-link a:hover { text-decoration: underline; }
+
 /* ------------------------------------------------------------------ */
 /* Footer                                                              */
 /* ------------------------------------------------------------------ */
@@ -790,6 +879,19 @@ a { color: inherit; text-decoration: none; }
     .profile { padding: 2rem 1rem 3rem; }
     .profile-stats { grid-template-columns: 1fr; }
     .profile-bar-row { grid-template-columns: 90px 1fr auto; gap: 0.75rem; }
+    /* The account forms are fluid on their own — .profile-form-card is a
+       max-width — but their button rows are not. At 375px the card leaves
+       ~279px inside its padding, and "Delete my account" beside Cancel needs
+       more than that as soon as DM Sans has not loaded and the wider system
+       fallback is measuring the labels. Stacking them is the honest fix; the
+       text-align is inherited by the .btn-ghost anchor, which is blockified
+       here and would otherwise sit against its left edge. */
+    .profile-form-actions {
+        flex-direction: column;
+        align-items: stretch;
+        text-align: center;
+    }
+
     .hero-actions { flex-direction: column; }
     .hero-actions .btn-primary,
     .hero-actions .btn-dark { width: 100%; text-align: center; }

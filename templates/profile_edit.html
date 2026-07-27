@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+
+{% block title %}Edit profile — Spendly{% endblock %}
+
+{% block content %}
+
+<section class="profile">
+
+    <h1 class="profile-name">Edit profile</h1>
+    <p class="profile-meta">Update the name and email on your Spendly account.</p>
+
+    {% if error %}
+    <div class="auth-error">{{ error }}</div>
+    {% endif %}
+
+    <div class="profile-form-card">
+        {# No hidden id field: the account being edited comes from the session,
+           never from anything the page can send back. #}
+        <form method="POST" action="/profile/edit">
+            <div class="form-group">
+                <label for="name">Full name</label>
+                <input type="text" id="name" name="name"
+                       class="form-input" placeholder="Nitish Kumar"
+                       value="{{ name or '' }}"
+                       required autofocus>
+            </div>
+            <div class="form-group">
+                <label for="email">Email address</label>
+                <input type="email" id="email" name="email"
+                       class="form-input" placeholder="nitish@example.com"
+                       value="{{ email or '' }}"
+                       required>
+            </div>
+            <div class="profile-form-actions">
+                <button type="submit" class="btn-submit">Save changes</button>
+                <a href="{{ url_for('profile') }}" class="btn-ghost">Cancel</a>
+            </div>
+        </form>
+    </div>
+
+</section>
+
+{% endblock %}

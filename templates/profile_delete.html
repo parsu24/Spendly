@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+
+{% block title %}Delete account — Spendly{% endblock %}
+
+{% block content %}
+
+<section class="profile">
+
+    <h1 class="profile-name">Delete your account</h1>
+    <p class="profile-meta">Please read what this removes before you confirm.</p>
+
+    {# States the real consequence in numbers rather than a vague warning: the
+       count and the total come from the route, and the amount goes through the
+       inr filter so it reads ₹18,240 like every other figure in Spendly. #}
+    <div class="profile-danger">
+        {% if count %}
+        <p>
+            Deleting your account also deletes
+            {{ count }} expense{{ '' if count == 1 else 's' }}
+            totalling {{ total | inr }}.
+        </p>
+        {% else %}
+        <p>
+            You have no expenses recorded, so only your account details —
+            your name, email and password — will be removed.
+        </p>
+        {% endif %}
+        <p>This cannot be undone. There is no way to restore the account afterwards.</p>
+    </div>
+
+    {% if error %}
+    <div class="auth-error">{{ error }}</div>
+    {% endif %}
+
+    <div class="profile-form-card">
+        {# No hidden id field, and no value on the password: the account being
+           deleted comes from the session, and a rejected confirmation must not
+           send the password back down in the HTML. #}
+        <form method="POST" action="/profile/delete">
+            <div class="form-group">
+                <label for="password">Enter your password to confirm</label>
+                <input type="password" id="password" name="password"
+                       class="form-input"
+                       required autofocus>
+            </div>
+            <div class="profile-form-actions">
+                {# Cancel is the calm way out and the destructive control is the
+                   one wearing --danger, so the safe choice is the easy one. #}
+                <button type="submit" class="btn-danger">Delete my account</button>
+                <a href="{{ url_for('profile') }}" class="btn-ghost">Cancel</a>
+            </div>
+        </form>
+    </div>
+
+</section>
+
+{% endblock %}

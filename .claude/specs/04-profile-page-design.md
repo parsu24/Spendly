@@ -126,8 +126,11 @@ schema block is untouched.
   `session["user_id"]`. A query that could return another user's row is a bug
   even when the page happens to render correctly for the demo account.
 - Never trust a route parameter or form field for identity — the user is
-  whoever `session["user_id"]` says, and there is no `/profile/<id>` form of
-  this route.
+  whoever `session["user_id"]` says. `/profile/<int:requested_id>` exists as a
+  second address for this page, but the id in it is only ever allowed to name
+  the signed-in account: it is compared against the session and `abort(404)`s
+  on any mismatch, and no query is ever scoped to it. A route that *read* from
+  a URL id would be the bug this rule is about.
 - Close the connection in a `finally`. `with get_db() as conn` commits but does
   not close; the Step 1 docstring spells this out.
 - Aggregate in SQL (`COUNT`, `SUM`, `GROUP BY`), not by pulling every row into

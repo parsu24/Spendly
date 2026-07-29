@@ -1,6 +1,6 @@
 import os
 import sqlite3
-from datetime import date
+from datetime import date, timedelta
 
 from flask import Flask, abort, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -150,6 +150,86 @@ def login():
     return redirect(url_for("profile"))
 
 
+# Shown when the range in the query string cannot be used. Both leave the page
+# on all-time figures: a half-applied filter would quietly report numbers for a
+# window nobody asked for, which is worse than reporting nothing was applied.
+RANGE_INVALID = "Please enter dates as YYYY-MM-DD."
+RANGE_BACKWARDS = "The start date is after the end date."
+
+
+def parse_range(args):
+    """Turn ?start= / ?end= into (start, end, error).
+
+    Each bound comes back as a `date` or as None, and None means unbounded on
+    that side — so a missing pair is exactly the unfiltered page Step 4 built.
+
+    Nothing this returns has been anywhere near SQL. The caller binds
+    `.isoformat()` of these values, which means the only date strings a query
+    ever sees are ones `date.fromisoformat` has already vouched for. That is
+    the whole point of parsing here rather than passing `args` along: these two
+    values arrive from the address bar, where anyone can type anything.
+    """
+    def bound(name):
+        raw = args.get(name, "").strip()
+        # fromisoformat is the entire validation. It accepts 'YYYY-MM-DD' and
+        # raises on '2026-13-45', on 'today', and on anything carrying a quote.
+        return date.fromisoformat(raw) if raw else None
+
+    try:
+        start = bound("start")
+        end = bound("end")
+    except ValueError:
+        return None, None, RANGE_INVALID
+
+    # Reported rather than swapped. A range typed backwards is a mistake, and
+    # silently correcting it would teach the visitor that it worked.
+    if start and end and start > end:
+        return None, None, RANGE_BACKWARDS
+
+    return start, end, None
+
+
+def format_day(day):
+    """Render a bound the way the page speaks: 1 Jul 2026.
+
+    Deliberately not strftime('%d %b %Y'), which zero-pads to '01 Jul 2026' and
+    reads like a filename. "Member since" keeps its own longer form.
+    """
+    return f"{day.day} {day.strftime('%b %Y')}"
+
+
+def describe_range(start, end):
+    """The sentence above the figures naming the window they cover."""
+    if start and end:
+        return f"Showing {format_day(start)} to {format_day(end)}"
+    if start:
+        return f"Showing everything from {format_day(start)}"
+    if end:
+        return f"Showing everything up to {format_day(end)}"
+    return "Showing all time"
+
+
+def range_presets(today=None):
+    """The one-click ranges, worked out server-side and rendered as links.
+
+    Links rather than a `?range=this-month` parameter on purpose: a preset that
+    resolved to dates only inside the route would be a second way to express a
+    range, and parse_range() would need to handle both. Here every preset is
+    just a pair of bounds in a URL, which is what the form produces too.
+    """
+    today = today or date.today()
+    return [
+        {"label": label, "start": first.isoformat(), "end": last.isoformat()}
+        for label, first, last in (
+            ("This month", today.replace(day=1), today),
+            # 29, not 30: the window is inclusive at both ends, so today plus
+            # the 29 days behind it is 30 days of spending.
+            ("Last 30 days", today - timedelta(days=29), today),
+            ("This year", today.replace(month=1, day=1), today),
+        )
+    ]
+
+
 @app.route("/profile")
 @app.route("/profile/<int:requested_id>")
 def profile(requested_id=None):
@@ -185,6 +265,25 @@ def profile(requested_id=None):
     if requested_id is not None and requested_id != user_id:
         abort(404)
 
+    # Read only after both guards above. A range narrows a result set that is
+    # already this account's; it is never a way to widen one, and it is never
+    # looked at before the identity behind it is known.
+    start, end, range_error = parse_range(request.args)
+
+    # Assembled from string literals written in this file and nothing else, so
+    # concatenating it into the queries below cannot smuggle anything in. The
+    # dates travel separately as bound parameters — that separation is what
+    # makes a query built this way safe, not the fact that the values parsed.
+    clause = ""
+    params = [user_id]
+    if start:
+        clause += " AND date >= ?"
+        params.append(start.isoformat())
+    if end:
+        clause += " AND date <= ?"
+        params.append(end.isoformat())
+    params = tuple(params)
+
     conn = get_db()
     try:
         user = conn.execute(
@@ -197,24 +296,22 @@ def profile(requested_id=None):
             session.clear()
             return redirect(url_for("login"))
 
+        # `clause` is empty on the unfiltered page, so both statements below
+        # are byte-for-byte what Step 4 ran. expenses.date holds ISO
+        # 'YYYY-MM-DD', which compares lexicographically in SQLite — that is
+        # why a plain >= / <= is a correct date comparison here and no
+        # strftime() is needed (see the schema note in database/db.py).
         summary = conn.execute(
             "SELECT COUNT(*) AS count, COALESCE(SUM(amount), 0) AS total"
-            "  FROM expenses WHERE user_id = ?",
-            (user_id,),
+            "  FROM expenses WHERE user_id = ?" + clause,
+            params,
         ).fetchone()
-
-        # strftime('%Y-%m', date) reduces the stored 'YYYY-MM-DD' to its month,
-        # which is cheaper to get right than hand-rolling a month-end boundary.
-        month_total = conn.execute(
-            "SELECT COALESCE(SUM(amount), 0) FROM expenses"
-            "  WHERE user_id = ? AND strftime('%Y-%m', date) = ?",
-            (user_id, date.today().strftime("%Y-%m")),
-        ).fetchone()[0]
 
         breakdown = conn.execute(
             "SELECT category, SUM(amount) AS total FROM expenses"
-            "  WHERE user_id = ? GROUP BY category ORDER BY total DESC",
-            (user_id,),
+            "  WHERE user_id = ?" + clause +
+            "  GROUP BY category ORDER BY total DESC",
+            params,
         ).fetchall()
     finally:
         # `with get_db() as conn` commits but does not close; see the get_db()
@@ -233,6 +330,19 @@ def profile(requested_id=None):
         for row in breakdown
     ]
 
+    # Replaces Step 4's "This month" tile. Once any window can be chosen, a
+    # figure hard-wired to the calendar month contradicts the three tiles
+    # beside it; "this month" survives as a preset instead. The guard matters —
+    # an empty range divides by zero otherwise.
+    average = summary["total"] / summary["count"] if summary["count"] else 0
+
+    # The fields echo the parsed bound when there is one, because canonical
+    # 'YYYY-MM-DD' is the only thing <input type="date"> will display. On a
+    # rejected range they fall back to the raw text, so what was typed stays
+    # beside the error explaining it.
+    raw_start = request.args.get("start", "").strip()
+    raw_end = request.args.get("end", "").strip()
+
     return render_template(
         "profile.html",
         user=user,
@@ -241,9 +351,18 @@ def profile(requested_id=None):
         member_since=to_local(user["created_at"]).strftime("%d %B %Y"),
         total=summary["total"],
         count=summary["count"],
-        month_total=month_total,
+        average=average,
         categories=categories,
         top_category=categories[0]["name"] if categories else None,
+        start=start.isoformat() if start else raw_start,
+        end=end.isoformat() if end else raw_end,
+        range_error=range_error,
+        range_note=describe_range(start, end),
+        # What separates "nothing in this window" from "nothing at all". Note
+        # it is false when a range was rejected — those figures are all-time,
+        # and the page must not claim otherwise.
+        has_range=bool(start or end),
+        presets=range_presets(),
     )
 
 

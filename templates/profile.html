@@ -34,15 +34,55 @@
         <a class="btn-ghost" href="{{ url_for('profile_password') }}">Change password</a>
     </div>
 
-    {% if count %}
+    {# Above the {% if count %} split for the same reason .profile-actions is:
+       an account with nothing in it can still pick a range, and a range that
+       found nothing needs its way back out to be on the page. #}
+    <form class="profile-filter" method="get" action="{{ url_for('profile') }}">
+        {% if range_error %}
+        {# Reuses the auth forms' error style — one vocabulary for "what you
+           submitted could not be used", wherever it is submitted. #}
+        <div class="auth-error">{{ range_error }}</div>
+        {% endif %}
+
+        <div class="profile-filter-fields">
+            <div class="form-group">
+                <label for="start">From</label>
+                <input class="form-input" type="date" id="start" name="start" value="{{ start }}">
+            </div>
+            <div class="form-group">
+                <label for="end">To</label>
+                <input class="form-input" type="date" id="end" name="end" value="{{ end }}">
+            </div>
+            <button class="btn-submit" type="submit">Apply</button>
+            {% if has_range %}
+            <a class="btn-ghost" href="{{ url_for('profile') }}">Clear</a>
+            {% endif %}
+        </div>
+
+        {# Ordinary links carrying dates, not a second kind of range: the route
+           parses one input shape, and url_for does the escaping. #}
+        <div class="profile-filter-presets">
+            {% for preset in presets %}
+            <a href="{{ url_for('profile', start=preset.start, end=preset.end) }}">{{ preset.label }}</a>
+            {% endfor %}
+            <a href="{{ url_for('profile') }}">All time</a>
+        </div>
+    </form>
+
+    <p class="profile-range-note">{{ range_note }}</p>
+
+    {# The tiles render for an empty range too — zeros are a real answer once a
+       window has been chosen, and hiding them would make the page look broken
+       rather than empty. #}
+    {% if count or has_range %}
     <div class="profile-stats">
         <div class="dash-stat">
             <span class="dash-stat-label">Total spent</span>
             <span class="dash-stat-value">{{ total | inr }}</span>
         </div>
         <div class="dash-stat">
-            <span class="dash-stat-label">This month</span>
-            <span class="dash-stat-value">{{ month_total | inr }}</span>
+            <span class="dash-stat-label">Average per expense</span>
+            <span class="dash-stat-value">{{ average | inr }}</span>
         </div>
         <div class="dash-stat">
             <span class="dash-stat-label">Expenses recorded</span>
@@ -50,10 +90,14 @@
         </div>
         <div class="dash-stat">
             <span class="dash-stat-label">Top category</span>
-            <span class="dash-stat-value">{{ top_category }}</span>
+            {# An empty range has no top category; a dash says so without
+               putting the word "None" in front of anyone. #}
+            <span class="dash-stat-value">{{ top_category or '—' }}</span>
         </div>
     </div>
+    {% endif %}
 
+    {% if count %}
     <div class="profile-card">
         <h2 class="profile-card-title">Where your money goes</h2>
         {# One series, so no legend — every bar wears the same green and the
@@ -67,6 +111,17 @@
             <span class="profile-bar-value">{{ category.total | inr }}</span>
         </div>
         {% endfor %}
+    </div>
+    {% elif has_range %}
+    {# Distinct from the state below on purpose. Telling someone with eighteen
+       thousand rupees of history that they have "no expenses yet" because they
+       picked last February is the bug this branch exists to prevent. #}
+    <div class="profile-empty profile-empty-filtered">
+        <p class="profile-empty-title">No expenses in this range</p>
+        <p class="profile-empty-body">
+            Nothing was recorded between these dates. Try a wider window, or
+            <a href="{{ url_for('profile') }}">show all time</a>.
+        </p>
     </div>
     {% else %}
     <div class="profile-empty">

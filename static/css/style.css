@@ -731,6 +731,65 @@ a { color: inherit; text-decoration: none; }
     margin-bottom: 2rem;
 }
 
+/* The range picker. One <form>, so the fields, the presets and any error all
+   belong to a single submit; the surface matches .profile-card so it reads as
+   part of the page rather than as something that opened on top of it. */
+.profile-filter {
+    background: var(--paper-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 1.25rem 1.5rem;
+    margin-bottom: 1rem;
+}
+
+/* flex-end so the two labelled inputs and the unlabelled button share one
+   baseline. The .form-group bottom margin that spaces a stacked auth form is
+   exactly what would break that alignment, hence the reset below it. */
+.profile-filter-fields {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 1rem;
+}
+
+.profile-filter-fields .form-group { margin-bottom: 0; }
+
+/* .btn-submit is width: 100% for the full-width auth forms; on this row it is
+   one control among several and sizes to its own label, as it does in
+   .profile-form-actions. */
+.profile-filter .btn-submit { width: auto; }
+
+.profile-filter-presets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.25rem;
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border-soft);
+    font-size: 0.9rem;
+}
+
+.profile-filter-presets a { color: var(--ink-muted); }
+
+.profile-filter-presets a:hover { color: var(--accent); }
+
+/* Between the picker and the figures it explains, so the sentence reads as a
+   caption for the numbers rather than as a label on the form above it. */
+.profile-range-note {
+    font-size: 0.85rem;
+    color: var(--ink-faint);
+    margin-bottom: 1.5rem;
+}
+
+/* Quieter than the first-run empty state: this is a window that happened to be
+   empty, not the condition of the whole account. */
+.profile-empty-filtered { padding: 2.5rem 2rem; }
+
+.profile-empty-filtered a {
+    color: var(--accent);
+    text-decoration: underline;
+}
+
 /* The auth card, reused for the account sub-forms. max-width rather than a
    fixed width means it is already fluid below 440px — no media query needed. */
 .profile-form-card {
@@ -891,6 +950,18 @@ a { color: inherit; text-decoration: none; }
         align-items: stretch;
         text-align: center;
     }
+
+    /* Two date inputs side by side do not fit in the ~279px a phone leaves
+       inside this card, and a native date field will not shrink below its
+       widget. Stacking is the only honest fix. The .btn-ghost anchor is
+       centred on its own — the labels above it must stay left-aligned. */
+    .profile-filter-fields {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .profile-filter .btn-submit { width: 100%; }
+    .profile-filter-fields .btn-ghost { text-align: center; }
 
     .hero-actions { flex-direction: column; }
     .hero-actions .btn-primary,

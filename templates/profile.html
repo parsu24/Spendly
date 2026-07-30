@@ -18,6 +18,12 @@
     <div class="auth-success">Your password has been changed.</div>
     {% endif %}
 
+    {# A third sibling for the same reason the second one is not an {% elif %}:
+       three routes set three notices, and none of them should hide another. #}
+    {% if request.args.get('added') %}
+    <div class="auth-success">Your expense has been added.</div>
+    {% endif %}
+
     <div class="profile-header">
         <div class="profile-monogram">{{ user.name[:1]|upper }}</div>
         <div>
@@ -30,6 +36,9 @@
     {# Above the {% if count %} split, so the controls are there in the empty
        state too — a new account is exactly when a name gets corrected. #}
     <div class="profile-actions">
+        {# First in the row: it is the one thing on this page a visitor comes
+           back to do repeatedly. The row already wraps, so it needs no CSS. #}
+        <a class="btn-ghost" href="{{ url_for('add_expense') }}">Add expense</a>
         <a class="btn-ghost" href="{{ url_for('profile_edit') }}">Edit profile</a>
         <a class="btn-ghost" href="{{ url_for('profile_password') }}">Change password</a>
     </div>
@@ -119,8 +128,9 @@
     <div class="profile-empty profile-empty-filtered">
         <p class="profile-empty-title">No expenses in this range</p>
         <p class="profile-empty-body">
-            Nothing was recorded between these dates. Try a wider window, or
-            <a href="{{ url_for('profile') }}">show all time</a>.
+            Nothing was recorded between these dates. Try a wider window,
+            <a href="{{ url_for('profile') }}">show all time</a>, or
+            <a href="{{ url_for('add_expense') }}">add an expense</a>.
         </p>
     </div>
     {% else %}
@@ -129,6 +139,7 @@
         <p class="profile-empty-body">
             Once you start logging what you spend, your totals and a
             category breakdown will appear here.
+            <a href="{{ url_for('add_expense') }}">Add your first expense</a>.
         </p>
     </div>
     {% endif %}

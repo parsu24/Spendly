@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+
+{% block title %}Analytics — Spendly{% endblock %}
+
+{% block content %}
+
+<section class="analytics">
+
+    <div class="analytics-inner">
+        {# Reuses the landing page's badge rather than a second pill style —
+           "this is a status marker" should look the same wherever it appears. #}
+        <span class="hero-badge">
+            <span class="hero-badge-dot"></span>
+            Coming soon
+        </span>
+
+        <h1 class="analytics-title">Analytics</h1>
+
+        <p class="analytics-subtitle">
+            Charts, trends and category breakdowns for every rupee you log.
+            We're building it now — your expenses are already being recorded,
+            so there will be history here the day it lands.
+        </p>
+    </div>
+
+    {# What is coming, in the same three-card shape the landing page uses for
+       its feature row. Static copy on purpose: nothing here reads the database
+       yet, so no figure on this page can be out of date. #}
+    <div class="analytics-features">
+        <div class="feature-card">
+            <div class="feature-icon">◔</div>
+            <h2 class="feature-title">Spending over time</h2>
+            <p class="feature-body">
+                Month-by-month totals, so a heavy week is obvious next to a
+                quiet one instead of buried in a list.
+            </p>
+        </div>
+        <div class="feature-card">
+            <div class="feature-icon">◈</div>
+            <h2 class="feature-title">Category trends</h2>
+            <p class="feature-body">
+                Watch a category move across months — whether groceries are
+                creeping up, and by how much.
+            </p>
+        </div>
+        <div class="feature-card">
+            <div class="feature-icon">◇</div>
+            <h2 class="feature-title">Budgets and alerts</h2>
+            <p class="feature-body">
+                Set a monthly ceiling per category and see where you stand
+                against it before the month closes.
+            </p>
+        </div>
+    </div>
+
+    {# A placeholder page with no way out is a dead end. The profile already
+       shows totals and a category breakdown, which is the closest thing to
+       analytics that exists today. #}
+    <p class="analytics-back">
+        <a href="{{ url_for('profile') }}">Back to your profile</a>
+    </p>
+
+</section>
+
+{% endblock %}

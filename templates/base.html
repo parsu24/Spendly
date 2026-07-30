@@ -20,6 +20,13 @@
             </a>
             <div class="nav-links">
                 {% if session.user_id %}
+                {# Signed-in only, matching the route's own guard — a link to a
+                   page that would just bounce you to the login form is worse
+                   than no link. `request.endpoint` is the route's function
+                   name, so the highlight follows the page rather than the URL
+                   text and survives the path changing. #}
+                <a href="{{ url_for('analytics') }}"
+                   class="nav-link{% if request.endpoint == 'analytics' %} is-active{% endif %}">Analytics</a>
                 <a href="{{ url_for('profile') }}" class="nav-user">{{ session.name }}</a>
                 <a href="{{ url_for('logout') }}" class="nav-logout">Log out</a>
                 {% else %}

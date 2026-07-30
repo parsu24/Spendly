@@ -660,6 +660,22 @@ def profile_delete():
     return redirect(url_for("landing"))
 
 
+@app.route("/analytics")
+def analytics():
+    # The same guard /profile and every account route above use: identity is
+    # read from the session and nothing else. There is no query yet — the page
+    # is a placeholder — but the gate goes on now rather than later, so the
+    # route never spends a single commit answering to logged-out visitors.
+    #
+    # Redirect rather than 404: unlike /profile/<id>, this URL is the same page
+    # for everyone, so there is nothing to disclose by admitting it exists. The
+    # useful answer to "you are not signed in" is the sign-in form.
+    if not session.get("user_id"):
+        return redirect(url_for("login"))
+
+    return render_template("analytics.html")
+
+
 @app.route("/terms")
 def terms():
     return render_template("terms.html")

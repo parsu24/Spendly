@@ -1,3 +1,4 @@
+import math
 import os
 import sqlite3
 from datetime import date, timedelta
@@ -5,7 +6,7 @@ from datetime import date, timedelta
 from flask import Flask, abort, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from database.db import format_inr, get_db, init_db, seed_db, to_local
+from database.db import CATEGORIES, format_inr, get_db, init_db, seed_db, to_local
 
 app = Flask(__name__)
 
@@ -694,13 +695,184 @@ def logout():
 
 
 # ------------------------------------------------------------------ #
-# Placeholder routes — students will implement these                  #
+# Expenses                                                            #
 # ------------------------------------------------------------------ #
 
+# A typo guard, not a business rule: nobody is stopped from recording a large
+# expense, but an amount this size is far more likely to be a slipped finger on
+# the keyboard than a real one, and a single stray row of that magnitude makes
+# every total and every bar on /profile useless.
+AMOUNT_MAX = 10_000_000
 
-@app.route("/expenses/add")
+# Long enough for a real note, short enough that the column stays a label rather
+# than becoming somewhere to paste an essay.
+DESCRIPTION_MAX = 200
+
+# Both name their own limit, so the message cannot drift out of step with the
+# constant it describes. The rupee figure goes through format_inr for the same
+# reason every amount in the UI does — Indian digit grouping in exactly one
+# place, never a "₹" built by hand here.
+AMOUNT_TOO_LARGE = f"Please enter an amount no greater than {format_inr(AMOUNT_MAX)}."
+DESCRIPTION_TOO_LONG = (
+    f"Please keep the description under {DESCRIPTION_MAX} characters."
+)
+
+
+@app.route("/expenses/add", methods=["GET", "POST"])
 def add_expense():
-    return "Add expense — coming in Step 7"
+    # The first route that writes a row a user composed. Everything the form
+    # sends is a suggestion; the only value here that is not is the account it
+    # belongs to, which comes from the session below and from nowhere else.
+
+    # Same guard the account routes use, and it runs first: `request.form` is
+    # never read before the visitor's identity is known, because anything can
+    # POST straight at this URL without ever loading the form.
+    user_id = session.get("user_id")
+    if not user_id:
+        return redirect(url_for("login"))
+
+    conn = get_db()
+    try:
+        # expenses.user_id is declared NOT NULL REFERENCES users(id) and get_db()
+        # turns the foreign_keys PRAGMA on, so inserting against an id that no
+        # longer exists raises IntegrityError. Checking here turns that 500 into
+        # the fresh login the visitor actually needs — the same treatment
+        # /profile and the account routes give a cookie left over from a
+        # database that has since been rebuilt.
+        if conn.execute(
+            "SELECT id FROM users WHERE id = ?", (user_id,)
+        ).fetchone() is None:
+            session.clear()
+            return redirect(url_for("login"))
+
+        if request.method == "GET":
+            # Today is the overwhelmingly common answer and the only field worth
+            # pre-filling: an amount would be a guess, and a category picked on
+            # the visitor's behalf is a category they did not choose.
+            return render_template(
+                "expense_add.html",
+                categories=CATEGORIES,
+                description_max=DESCRIPTION_MAX,
+                date=date.today().isoformat(),
+            )
+
+        amount_raw = request.form.get("amount", "").strip()
+        category = request.form.get("category", "").strip()
+        date_raw = request.form.get("date", "").strip()
+        description = request.form.get("description", "").strip()
+
+        def reject(message, date_value=None):
+            """Re-render the form with the error and the submitted values.
+
+            Everything the visitor got right stays on the page, so fixing one
+            field never means retyping the other three. `date_value` lets a
+            caller substitute the canonical form of a date that parsed —
+            <input type="date"> will not display anything else.
+            """
+            return render_template(
+                "expense_add.html",
+                error=message,
+                categories=CATEGORIES,
+                description_max=DESCRIPTION_MAX,
+                amount=amount_raw,
+                category=category,
+                date=date_value if date_value is not None else date_raw,
+                description=description,
+            )
+
+        # The template's `required`, `min` and `step` attributes and the
+        # <select>'s fixed list of options are conveniences for the browser, not
+        # controls. Every one of them is checked again below, because a POST
+        # never has to come from the form that was rendered.
+        #
+        # description is absent from this check on purpose — it is the one
+        # optional field.
+        if not amount_raw or not category or not date_raw:
+            return reject("Please fill in every field.")
+
+        try:
+            amount = float(amount_raw)
+        except ValueError:
+            return reject("Please enter the amount as a number, like 250 or 99.50.")
+
+        # float() accepts 'inf', 'infinity' and 'nan', and turns '1e400' into inf
+        # without complaint. Any of them would make SUM(amount) on /profile
+        # inf or nan for the life of the account — a single row that permanently
+        # breaks every figure on the page. This is the check that stops it.
+        if not math.isfinite(amount):
+            return reject("Please enter the amount as a number, like 250 or 99.50.")
+        if amount <= 0:
+            return reject("Please enter an amount greater than zero.")
+        if amount > AMOUNT_MAX:
+            return reject(AMOUNT_TOO_LARGE)
+
+        # Rounded before it is stored, not on the way out: amount is REAL, and a
+        # column full of unrounded input makes the totals drift by fractions of a
+        # paisa that eventually show up in a figure someone is reading.
+        amount = round(amount, 2)
+
+        # The whole point of the field. A rendered <select> offers seven values;
+        # a POST can name anything at all, and 'Bribes' or "Food'; DROP TABLE"
+        # must be refused rather than stored. CATEGORIES is the single source
+        # both this check and the dropdown read from.
+        if category not in CATEGORIES:
+            return reject("Please choose a category from the list.")
+
+        # Parsed inline rather than through parse_range(): that helper answers a
+        # different question — two optional bounds where blank means unbounded —
+        # and bending it to serve this field would make a missing date silently
+        # valid. fromisoformat is the entire validation, and it accepts only
+        # 'YYYY-MM-DD', which is exactly what the column stores.
+        try:
+            spent_on = date.fromisoformat(date_raw)
+        except ValueError:
+            return reject("Please enter the date as YYYY-MM-DD.")
+
+        # You cannot have spent money tomorrow. Everything downstream assumes it
+        # too: seed_db() never dates a row ahead, and Step 6's presets all end
+        # at today, so a future row would sit outside every preset range while
+        # still counting towards the all-time total.
+        if spent_on > date.today():
+            return reject("That date is in the future.", spent_on.isoformat())
+
+        # Rejected rather than truncated. Silently storing the first 200
+        # characters would tell the visitor their note was saved when part of it
+        # was thrown away.
+        if len(description) > DESCRIPTION_MAX:
+            return reject(DESCRIPTION_TOO_LONG, spent_on.isoformat())
+
+        # Every value bound as a parameter, the same shape seed_db() inserts.
+        # user_id is the session's, never the form's — a form that could name its
+        # owner is how one account writes rows into another's ledger.
+        #
+        # created_at is deliberately absent from the column list so the schema's
+        # datetime('now') default fires and the timestamp stays UTC. Passing
+        # date.today() would quietly store local time in a column every reader
+        # converts *from* UTC.
+        #
+        # `or None` is what keeps the nullable column honest: a blank note is the
+        # absence of a note, not the empty string.
+        conn.execute(
+            "INSERT INTO expenses (user_id, amount, category, date, description)"
+            " VALUES (?, ?, ?, ?, ?)",
+            (user_id, amount, category, spent_on.isoformat(), description or None),
+        )
+        conn.commit()
+    finally:
+        # `with get_db() as conn` commits but does not close; see the get_db()
+        # docstring. Closing by hand is the only way to release the file.
+        conn.close()
+
+    # A redirect, not a render. A POST that answers with HTML leaves the insert
+    # sitting in the browser's history, where a refresh adds the expense a second
+    # time without anyone clicking anything. ?added=1 is the same notice pattern
+    # Step 5 established for ?updated=1 and ?password=1.
+    return redirect(url_for("profile", added=1))
+
+
+# ------------------------------------------------------------------ #
+# Placeholder routes — students will implement these                  #
+# ------------------------------------------------------------------ #
 
 
 @app.route("/expenses/<int:id>/edit")

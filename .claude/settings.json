@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Write|Edit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/block_db_deletion.py\"",
+            "timeout": 10,
+            "statusMessage": "Checking spendly.db safety"
+          }
+        ]
+      }
+    ]
+  }
+}

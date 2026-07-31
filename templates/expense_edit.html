@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% block title %}Edit expense — Spendly{% endblock %}
+
+{% block content %}
+
+<section class="profile">
+
+    <h1 class="profile-name">Edit expense</h1>
+    <p class="profile-meta">Change what you recorded, and your totals will follow.</p>
+
+    {% if error %}
+    <div class="auth-error">{{ error }}</div>
+    {% endif %}
+
+    <div class="profile-form-card">
+        {# The id travels in the URL and nowhere else. No hidden id field and no
+           hidden user field: which row this is, and whose it is, are settled by
+           the route against the session — never by anything the page sends back. #}
+        <form method="POST" action="{{ url_for('edit_expense', id=id) }}">
+            <div class="form-group">
+                <label for="amount">Amount</label>
+                {# step and min let the browser help, and inputmode brings up the
+                   right keypad on a phone. None of the three is trusted — the
+                   route checks the value again. #}
+                <input type="number" id="amount" name="amount"
+                       class="form-input" placeholder="250"
+                       step="0.01" min="0.01" inputmode="decimal"
+                       value="{{ amount if amount is not none else '' }}"
+                       required autofocus>
+                <p class="profile-form-hint">In rupees. Paise are fine — 99.50.</p>
+            </div>
+            <div class="form-group">
+                <label for="category">Category</label>
+                {# Looped from CATEGORIES, never a hardcoded list: database/db.py
+                   says the dropdown and that list must stay in sync, and one
+                   source is the only way to guarantee it. #}
+                <select id="category" name="category" class="form-input form-select" required>
+                    {# The row always has a category, so the placeholder is never
+                       selected here. It stays for the one case that can still
+                       reach it: a POST that cleared the field, re-rendered. #}
+                    <option value="" disabled{{ ' selected' if not category }}>Choose a category</option>
+                    {% for option in categories %}
+                    <option value="{{ option }}"{{ ' selected' if option == category }}>{{ option }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="date">Date</label>
+                <input type="date" id="date" name="date"
+                       class="form-input"
+                       value="{{ date or '' }}"
+                       required>
+            </div>
+            <div class="form-group">
+                <label for="description">Description</label>
+                <input type="text" id="description" name="description"
+                       class="form-input" placeholder="Monthly groceries"
+                       value="{{ description or '' }}"
+                       maxlength="{{ description_max }}">
+                <p class="profile-form-hint">Optional — a note to remind you what this was.</p>
+            </div>
+            <div class="profile-form-actions">
+                <button type="submit" class="btn-submit">Save changes</button>
+                <a href="{{ url_for('profile') }}" class="btn-ghost">Cancel</a>
+            </div>
+        </form>
+    </div>
+
+</section>
+
+{% endblock %}

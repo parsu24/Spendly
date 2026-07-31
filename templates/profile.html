@@ -24,6 +24,11 @@
     <div class="auth-success">Your expense has been added.</div>
     {% endif %}
 
+    {# A fourth sibling, for the same reason as the second and the third. #}
+    {% if request.args.get('edited') %}
+    <div class="auth-success">Your expense has been updated.</div>
+    {% endif %}
+
     <div class="profile-header">
         <div class="profile-monogram">{{ user.name[:1]|upper }}</div>
         <div>
@@ -118,6 +123,27 @@
                 <div class="dash-bar profile-bar" style="width: {{ category.width }}%"></div>
             </div>
             <span class="profile-bar-value">{{ category.total | inr }}</span>
+        </div>
+        {% endfor %}
+    </div>
+
+    {# Inside the same {% if count %} branch as the breakdown above: when there is
+       nothing to count there is nothing to list either, and the empty states below
+       already say so. Every row carries its own edit link — this list is the only
+       way into the edit form, which is why it is not capped. #}
+    <div class="profile-card profile-expenses">
+        <h2 class="profile-card-title">Your expenses</h2>
+        {% for expense in expenses %}
+        <div class="profile-expense-row">
+            <span class="profile-expense-day">{{ expense.day }}</span>
+            <span class="profile-expense-category">{{ expense.category }}</span>
+            {# An em dash rather than an empty cell, so a row with no note still
+               reads as a row. The description is the one piece of free text a
+               visitor authored; Jinja escapes it and nothing here says |safe. #}
+            <span class="profile-expense-note">{{ expense.description or '—' }}</span>
+            <span class="profile-expense-amount">{{ expense.amount | inr }}</span>
+            <a class="profile-expense-edit"
+               href="{{ url_for('edit_expense', id=expense.id) }}">Edit</a>
         </div>
         {% endfor %}
     </div>

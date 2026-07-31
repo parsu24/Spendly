@@ -314,6 +314,22 @@ def profile(requested_id=None):
             "  GROUP BY category ORDER BY total DESC",
             params,
         ).fetchall()
+
+        # The same `clause` and the same `params` the two statements above use, so
+        # the list and the figures can never disagree about which rows are in
+        # scope — a list showing rows the tiles did not count would make the page
+        # contradict itself.
+        #
+        # Deliberately uncapped. This list is the only route to an expense's edit
+        # form, so a LIMIT would strand every older row as uneditable; the date
+        # filter above is what narrows a long list. Newest first, with id breaking
+        # ties, because several expenses commonly share one date.
+        expense_rows = conn.execute(
+            "SELECT id, amount, category, date, description FROM expenses"
+            "  WHERE user_id = ?" + clause +
+            "  ORDER BY date DESC, id DESC",
+            params,
+        ).fetchall()
     finally:
         # `with get_db() as conn` commits but does not close; see the get_db()
         # docstring. Closing by hand is the only way to release the file.
@@ -329,6 +345,21 @@ def profile(requested_id=None):
             "width": round(row["total"] / largest * 100, 1) if largest else 0,
         }
         for row in breakdown
+    ]
+
+    # Dates rendered here rather than in the template, through the same helper the
+    # range note uses, so one page never speaks about dates in two voices. The
+    # stored ISO string is kept alongside it — the row's own edit link needs
+    # nothing else, but a reader comparing the list against the filter above does.
+    expenses = [
+        {
+            "id": row["id"],
+            "amount": row["amount"],
+            "category": row["category"],
+            "day": format_day(date.fromisoformat(row["date"])),
+            "description": row["description"],
+        }
+        for row in expense_rows
     ]
 
     # Replaces Step 4's "This month" tile. Once any window can be chosen, a
@@ -354,6 +385,7 @@ def profile(requested_id=None):
         count=summary["count"],
         average=average,
         categories=categories,
+        expenses=expenses,
         top_category=categories[0]["name"] if categories else None,
         start=start.isoformat() if start else raw_start,
         end=end.isoformat() if end else raw_end,
@@ -717,6 +749,123 @@ DESCRIPTION_TOO_LONG = (
     f"Please keep the description under {DESCRIPTION_MAX} characters."
 )
 
+# Named because two separate branches below reach it — a value float() cannot read
+# at all, and one it reads as an infinity — and they must say the same thing.
+AMOUNT_NOT_A_NUMBER = "Please enter the amount as a number, like 250 or 99.50."
+
+
+def parse_expense_form(form):
+    """Validate one submitted expense, whether it is being added or edited.
+
+    Returns `(fields, values, error)`:
+
+        fields — exactly what the visitor typed, ready to echo back into the form
+        values — the cleaned amount, category, date and description ready to bind,
+                 or None when there is an error
+        error  — None, or the one message naming what to fix
+
+    Both expense routes call this. That is the point of it being a function: an
+    edit form that validated more permissively than the add form would be a way to
+    write a value the add form refuses, and a rule that lives in one place cannot
+    drift between the two.
+
+    `fields` is returned on the success path too, and it is always populated —
+    everything the visitor got right stays on the page, so fixing one field never
+    means retyping the other three. Only the date is ever normalised: it holds the
+    canonical 'YYYY-MM-DD' once it has parsed, because <input type="date"> will not
+    display anything else, and the raw string before then so that what was typed
+    stays beside the error explaining it.
+    """
+    amount_raw = form.get("amount", "").strip()
+    category = form.get("category", "").strip()
+    date_raw = form.get("date", "").strip()
+    description = form.get("description", "").strip()
+
+    fields = {
+        "amount": amount_raw,
+        "category": category,
+        "date": date_raw,
+        "description": description,
+    }
+
+    def fail(message):
+        return fields, None, message
+
+    # The templates' `required`, `min` and `step` attributes and the <select>'s
+    # fixed list of options are conveniences for the browser, not controls. Every
+    # one of them is checked again below, because a POST never has to come from the
+    # form that was rendered.
+    #
+    # description is absent from this check on purpose — it is the one optional
+    # field.
+    if not amount_raw or not category or not date_raw:
+        return fail("Please fill in every field.")
+
+    try:
+        amount = float(amount_raw)
+    except ValueError:
+        return fail(AMOUNT_NOT_A_NUMBER)
+
+    # float() accepts 'inf', 'infinity' and 'nan', and turns '1e400' into inf
+    # without complaint. Any of them would make SUM(amount) on /profile inf or nan
+    # for the life of the account — a single row that permanently breaks every
+    # figure on the page. This is the check that stops it.
+    if not math.isfinite(amount):
+        return fail(AMOUNT_NOT_A_NUMBER)
+    if amount <= 0:
+        return fail("Please enter an amount greater than zero.")
+    if amount > AMOUNT_MAX:
+        return fail(AMOUNT_TOO_LARGE)
+
+    # Rounded before it is stored, not on the way out: amount is REAL, and a column
+    # full of unrounded input makes the totals drift by fractions of a paisa that
+    # eventually show up in a figure someone is reading.
+    amount = round(amount, 2)
+
+    # The whole point of the field. A rendered <select> offers seven values; a POST
+    # can name anything at all, and 'Bribes' or "Food'; DROP TABLE" must be refused
+    # rather than stored. CATEGORIES is the single source both this check and the
+    # dropdown read from.
+    if category not in CATEGORIES:
+        return fail("Please choose a category from the list.")
+
+    # Parsed inline rather than through parse_range(): that helper answers a
+    # different question — two optional bounds where blank means unbounded — and
+    # bending it to serve this field would make a missing date silently valid.
+    # fromisoformat is the entire validation, and it accepts only 'YYYY-MM-DD',
+    # which is exactly what the column stores.
+    try:
+        spent_on = date.fromisoformat(date_raw)
+    except ValueError:
+        return fail("Please enter the date as YYYY-MM-DD.")
+
+    # It parsed, so the field can hold it. Every rejection from here on echoes the
+    # canonical form; the ones above echo the raw string, because a date the field
+    # cannot display is better shown as typed than silently blanked.
+    fields["date"] = spent_on.isoformat()
+
+    # You cannot have spent money tomorrow. Everything downstream assumes it too:
+    # seed_db() never dates a row ahead, and Step 6's presets all end at today, so a
+    # future row would sit outside every preset range while still counting towards
+    # the all-time total.
+    if spent_on > date.today():
+        return fail("That date is in the future.")
+
+    # Rejected rather than truncated. Silently storing the first 200 characters
+    # would tell the visitor their note was saved when part of it was thrown away.
+    if len(description) > DESCRIPTION_MAX:
+        return fail(DESCRIPTION_TOO_LONG)
+
+    values = {
+        "amount": amount,
+        "category": category,
+        "date": spent_on.isoformat(),
+        # `or None` is what keeps the nullable column honest: a blank note is the
+        # absence of a note, not the empty string.
+        "description": description or None,
+    }
+    return fields, values, None
+
 
 @app.route("/expenses/add", methods=["GET", "POST"])
 def add_expense():
@@ -756,90 +905,20 @@ def add_expense():
                 date=date.today().isoformat(),
             )
 
-        amount_raw = request.form.get("amount", "").strip()
-        category = request.form.get("category", "").strip()
-        date_raw = request.form.get("date", "").strip()
-        description = request.form.get("description", "").strip()
+        # Every rule lives in parse_expense_form() so the edit route in Step 8
+        # cannot drift away from it. Only the rendering below is this route's own.
+        fields, values, error = parse_expense_form(request.form)
 
-        def reject(message, date_value=None):
-            """Re-render the form with the error and the submitted values.
-
-            Everything the visitor got right stays on the page, so fixing one
-            field never means retyping the other three. `date_value` lets a
-            caller substitute the canonical form of a date that parsed —
-            <input type="date"> will not display anything else.
-            """
+        if error:
+            # Re-render the form with the error and the submitted values, so
+            # fixing one field never means retyping the other three.
             return render_template(
                 "expense_add.html",
-                error=message,
+                error=error,
                 categories=CATEGORIES,
                 description_max=DESCRIPTION_MAX,
-                amount=amount_raw,
-                category=category,
-                date=date_value if date_value is not None else date_raw,
-                description=description,
+                **fields,
             )
-
-        # The template's `required`, `min` and `step` attributes and the
-        # <select>'s fixed list of options are conveniences for the browser, not
-        # controls. Every one of them is checked again below, because a POST
-        # never has to come from the form that was rendered.
-        #
-        # description is absent from this check on purpose — it is the one
-        # optional field.
-        if not amount_raw or not category or not date_raw:
-            return reject("Please fill in every field.")
-
-        try:
-            amount = float(amount_raw)
-        except ValueError:
-            return reject("Please enter the amount as a number, like 250 or 99.50.")
-
-        # float() accepts 'inf', 'infinity' and 'nan', and turns '1e400' into inf
-        # without complaint. Any of them would make SUM(amount) on /profile
-        # inf or nan for the life of the account — a single row that permanently
-        # breaks every figure on the page. This is the check that stops it.
-        if not math.isfinite(amount):
-            return reject("Please enter the amount as a number, like 250 or 99.50.")
-        if amount <= 0:
-            return reject("Please enter an amount greater than zero.")
-        if amount > AMOUNT_MAX:
-            return reject(AMOUNT_TOO_LARGE)
-
-        # Rounded before it is stored, not on the way out: amount is REAL, and a
-        # column full of unrounded input makes the totals drift by fractions of a
-        # paisa that eventually show up in a figure someone is reading.
-        amount = round(amount, 2)
-
-        # The whole point of the field. A rendered <select> offers seven values;
-        # a POST can name anything at all, and 'Bribes' or "Food'; DROP TABLE"
-        # must be refused rather than stored. CATEGORIES is the single source
-        # both this check and the dropdown read from.
-        if category not in CATEGORIES:
-            return reject("Please choose a category from the list.")
-
-        # Parsed inline rather than through parse_range(): that helper answers a
-        # different question — two optional bounds where blank means unbounded —
-        # and bending it to serve this field would make a missing date silently
-        # valid. fromisoformat is the entire validation, and it accepts only
-        # 'YYYY-MM-DD', which is exactly what the column stores.
-        try:
-            spent_on = date.fromisoformat(date_raw)
-        except ValueError:
-            return reject("Please enter the date as YYYY-MM-DD.")
-
-        # You cannot have spent money tomorrow. Everything downstream assumes it
-        # too: seed_db() never dates a row ahead, and Step 6's presets all end
-        # at today, so a future row would sit outside every preset range while
-        # still counting towards the all-time total.
-        if spent_on > date.today():
-            return reject("That date is in the future.", spent_on.isoformat())
-
-        # Rejected rather than truncated. Silently storing the first 200
-        # characters would tell the visitor their note was saved when part of it
-        # was thrown away.
-        if len(description) > DESCRIPTION_MAX:
-            return reject(DESCRIPTION_TOO_LONG, spent_on.isoformat())
 
         # Every value bound as a parameter, the same shape seed_db() inserts.
         # user_id is the session's, never the form's — a form that could name its
@@ -849,13 +928,16 @@ def add_expense():
         # datetime('now') default fires and the timestamp stays UTC. Passing
         # date.today() would quietly store local time in a column every reader
         # converts *from* UTC.
-        #
-        # `or None` is what keeps the nullable column honest: a blank note is the
-        # absence of a note, not the empty string.
         conn.execute(
             "INSERT INTO expenses (user_id, amount, category, date, description)"
             " VALUES (?, ?, ?, ?, ?)",
-            (user_id, amount, category, spent_on.isoformat(), description or None),
+            (
+                user_id,
+                values["amount"],
+                values["category"],
+                values["date"],
+                values["description"],
+            ),
         )
         conn.commit()
     finally:
@@ -870,14 +952,128 @@ def add_expense():
     return redirect(url_for("profile", added=1))
 
 
+@app.route("/expenses/<int:id>/edit", methods=["GET", "POST"])
+def edit_expense(id):
+    # The first route where a value from the URL names a database row. Every route
+    # before this one scoped its queries to the session and nothing else; `id` is a
+    # number a visitor can type, and the only thing between it and somebody else's
+    # expense is the `AND user_id = ?` on both statements below.
+    #
+    # /profile/<int:requested_id> rehearsed the reasoning (see the comment there),
+    # but it could compare the id against the session directly. Here the id names a
+    # row in another table, so ownership has to be established by the query itself.
+
+    # Same guard the account routes use, and it runs first: `request.form` is never
+    # read before the visitor's identity is known, and neither is the row. A logged
+    # out request must get the login form and never a 404 — answering "not found"
+    # here would tell a stranger which ids exist without their signing in at all.
+    user_id = session.get("user_id")
+    if not user_id:
+        return redirect(url_for("login"))
+
+    conn = get_db()
+    try:
+        # A cookie left over from a database that has since been rebuilt. The
+        # ownership-scoped SELECT below would return nothing for a deleted account
+        # and 404 — correct, but useless. Checking here sends the visitor to the
+        # fresh login they actually need, as add_expense() does.
+        if conn.execute(
+            "SELECT id FROM users WHERE id = ?", (user_id,)
+        ).fetchone() is None:
+            session.clear()
+            return redirect(url_for("login"))
+
+        # Ownership enforced in the WHERE clause, not in Python afterwards. Fetching
+        # by id alone and comparing row["user_id"] would work, but it reads the row
+        # before the reader is entitled to it and puts the check one careless edit
+        # away from being dropped.
+        expense = conn.execute(
+            "SELECT id, amount, category, date, description FROM expenses"
+            "  WHERE id = ? AND user_id = ?",
+            (id, user_id),
+        ).fetchone()
+
+        # 404 rather than 403, and the same 404 for an id that belongs to somebody
+        # else and an id that was never issued. "Forbidden" would confirm the row
+        # exists, so a stranger could walk the ids and learn how many expenses the
+        # app holds. "Not found" tells the two apart for nobody.
+        if expense is None:
+            abort(404)
+
+        if request.method == "GET":
+            # Prefilled from the row, so "save" without touching a field is a no-op
+            # rather than a way to blank the expense out.
+            return render_template(
+                "expense_edit.html",
+                categories=CATEGORIES,
+                description_max=DESCRIPTION_MAX,
+                id=expense["id"],
+                # Trailing zeros trimmed so a whole-rupee row reads "3450" rather
+                # than "3450.0". The column is REAL, and str() of a float always
+                # carries the point; formatting to 2dp first keeps the paise on the
+                # rows that have them, and avoids the scientific notation "%g"
+                # would produce near the ceiling.
+                amount=f"{expense['amount']:.2f}".rstrip("0").rstrip("."),
+                category=expense["category"],
+                date=expense["date"],
+                description=expense["description"] or "",
+            )
+
+        # The same rules the add form applies, from the same function. An edit that
+        # validated more permissively would be a way to write a value /expenses/add
+        # refuses.
+        fields, values, error = parse_expense_form(request.form)
+
+        if error:
+            # This route's own rendering, unlike its validation: the edit form needs
+            # `id` in its context so its action attribute can be rebuilt.
+            return render_template(
+                "expense_edit.html",
+                error=error,
+                categories=CATEGORIES,
+                description_max=DESCRIPTION_MAX,
+                id=expense["id"],
+                **fields,
+            )
+
+        # Scoped to the session's id a second time. The row was already proved to be
+        # this account's by the SELECT above, so the repetition is belt-and-braces —
+        # but it is the statement that actually writes, and it should not depend on
+        # a check made several lines earlier to be safe on its own.
+        #
+        # user_id is deliberately absent from the SET list: an edit cannot move a row
+        # between accounts, and a route that could would be a way to plant rows in
+        # somebody else's ledger. created_at is absent for a different reason — it
+        # records when the expense was entered, not when it was last touched.
+        conn.execute(
+            "UPDATE expenses SET amount = ?, category = ?, date = ?, description = ?"
+            "  WHERE id = ? AND user_id = ?",
+            (
+                values["amount"],
+                values["category"],
+                values["date"],
+                values["description"],
+                id,
+                user_id,
+            ),
+        )
+        conn.commit()
+    finally:
+        # `with get_db() as conn` commits but does not close; see the get_db()
+        # docstring. Closing by hand is the only way to release the file.
+        conn.close()
+
+    # A redirect, not a render, for the reason add_expense() gives: a POST that
+    # answers with HTML leaves the update sitting in the browser's history. Note
+    # that a submit which changed nothing still lands here — re-saving an expense
+    # unchanged is not a mistake worth an error, unlike a password "change" that
+    # changes nothing.
+    return redirect(url_for("profile", edited=1))
+
+
 # ------------------------------------------------------------------ #
 # Placeholder routes — students will implement these                  #
 # ------------------------------------------------------------------ #
-
-
-@app.route("/expenses/<int:id>/edit")
-def edit_expense(id):
-    return "Edit expense — coming in Step 8"
 
 
 @app.route("/expenses/<int:id>/delete")

@@ -515,10 +515,3 @@ def test_the_step_six_filter_still_scopes_the_new_row(client):
 
     outside = client.get(f"/profile?start={TODAY}&end={TODAY}").get_data(as_text=True)
     assert "₹777" not in outside
-
-
-def test_the_remaining_placeholder_is_untouched(client):
-    # /expenses/<id>/edit was asserted here too until Step 8 implemented it. The
-    # delete route is the last placeholder left.
-    login(client)
-    assert b"coming in Step 9" in client.get("/expenses/1/delete").data

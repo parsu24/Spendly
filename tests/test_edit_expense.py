@@ -636,8 +636,3 @@ def test_the_add_route_is_unchanged(client):
     )
     assert_redirects_to_profile(response)
     assert expense_count() == SEEDED_COUNT + 1
-
-
-def test_the_delete_placeholder_is_untouched(client):
-    login(client)
-    assert b"coming in Step 9" in client.get("/expenses/1/delete").data

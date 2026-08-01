@@ -29,6 +29,11 @@
     <div class="auth-success">Your expense has been updated.</div>
     {% endif %}
 
+    {# And a fifth. Five routes set five notices, and none should hide another. #}
+    {% if request.args.get('deleted') %}
+    <div class="auth-success">Your expense has been deleted.</div>
+    {% endif %}
+
     <div class="profile-header">
         <div class="profile-monogram">{{ user.name[:1]|upper }}</div>
         <div>
@@ -142,8 +147,17 @@
                visitor authored; Jinja escapes it and nothing here says |safe. #}
             <span class="profile-expense-note">{{ expense.description or '—' }}</span>
             <span class="profile-expense-amount">{{ expense.amount | inr }}</span>
-            <a class="profile-expense-edit"
-               href="{{ url_for('edit_expense', id=expense.id) }}">Edit</a>
+            {# Both links in one cell rather than a column each: the row already
+               reflows to two columns on a phone, and a wrapper keeps the pair
+               together there instead of stranding one of them on its own line.
+               Delete is an ordinary link to a confirmation page — the row is
+               destroyed by the POST that page sends, never by this click. #}
+            <span class="profile-expense-actions">
+                <a class="profile-expense-edit"
+                   href="{{ url_for('edit_expense', id=expense.id) }}">Edit</a>
+                <a class="profile-expense-delete"
+                   href="{{ url_for('delete_expense', id=expense.id) }}">Delete</a>
+            </span>
         </div>
         {% endfor %}
     </div>

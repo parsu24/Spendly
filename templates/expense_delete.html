@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+
+{% block title %}Delete expense — Spendly{% endblock %}
+
+{% block content %}
+
+<section class="profile">
+
+    <h1 class="profile-name">Delete this expense</h1>
+    <p class="profile-meta">Check it is the right one before you confirm.</p>
+
+    {# The row named in full, the way profile_delete.html states the account's
+       count and total rather than warning vaguely. This is also why the route
+       asks for no password: everything needed to type the expense back in is on
+       the screen immediately before it goes. #}
+    <div class="profile-danger">
+        <p class="profile-delete-amount">{{ amount | inr }}</p>
+        <p>{{ category }} — {{ day }}</p>
+        {# An em dash rather than an empty line, matching the /profile list. The
+           description is the one piece of free text a visitor authored; Jinja
+           escapes it and nothing here says |safe. #}
+        <p>{{ description or '—' }}</p>
+        <p>This cannot be undone.</p>
+    </div>
+
+    <div class="profile-form-card">
+        {# The id travels in the URL and nowhere else. No hidden id field and no
+           hidden user field: which row this is, and whose it is, are settled by
+           the route against the session — never by anything the page sends back.
+
+           No password field either, and nothing to echo back on a failure: this
+           form carries no input, so there is no submission it can reject. #}
+        <form method="POST" action="{{ url_for('delete_expense', id=id) }}">
+            <div class="profile-form-actions">
+                {# Cancel is the calm way out and the destructive control is the
+                   one wearing --danger, so the safe choice is the easy one. #}
+                <button type="submit" class="btn-danger">Delete expense</button>
+                <a href="{{ url_for('profile') }}" class="btn-ghost">Cancel</a>
+            </div>
+        </form>
+    </div>
+
+</section>
+
+{% endblock %}

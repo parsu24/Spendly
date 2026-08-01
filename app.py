@@ -1071,14 +1071,96 @@ def edit_expense(id):
     return redirect(url_for("profile", edited=1))
 
 
-# ------------------------------------------------------------------ #
-# Placeholder routes — students will implement these                  #
-# ------------------------------------------------------------------ #
-
-
-@app.route("/expenses/<int:id>/delete")
+@app.route("/expenses/<int:id>/delete", methods=["GET", "POST"])
 def delete_expense(id):
-    return "Delete expense — coming in Step 9"
+    # `methods` is spelled out, and that is the whole point of this route. Until
+    # now the rule was `@app.route("/expenses/<int:id>/delete")` — GET-only by
+    # omission — and a destructive GET fires on a link prefetch, on a crawler, or
+    # on a browser restoring tabs, with nobody having clicked anything. The
+    # confirmation below renders on GET and the row is destroyed only on POST,
+    # the same split /profile/delete uses (see the comment at its GET branch).
+    #
+    # No re-authentication here, and the asymmetry with /profile/delete is
+    # deliberate. That route asks for the password because it destroys an account
+    # and every expense in it. This destroys one row whose every field is on the
+    # screen immediately before it goes, so re-entering it costs a single form.
+    # The confirmation screen is the guard on this route.
+
+    # Same guard the account routes use, and it runs first: neither the row nor
+    # `request.form` is looked at before the visitor's identity is known. A logged
+    # out request must get the login form and never a 404 — answering "not found"
+    # here would tell a stranger which ids exist without their signing in at all.
+    user_id = session.get("user_id")
+    if not user_id:
+        return redirect(url_for("login"))
+
+    conn = get_db()
+    try:
+        # A cookie left over from a database that has since been rebuilt. The
+        # ownership-scoped SELECT below would return nothing for a deleted account
+        # and 404 — correct, but useless. Checking here sends the visitor to the
+        # fresh login they actually need, as add_expense() and edit_expense() do.
+        if conn.execute(
+            "SELECT id FROM users WHERE id = ?", (user_id,)
+        ).fetchone() is None:
+            session.clear()
+            return redirect(url_for("login"))
+
+        # Ownership enforced in the WHERE clause, exactly as edit_expense() does
+        # it. Only the four columns the confirmation screen names are read — this
+        # route displays the row, it never writes one back.
+        expense = conn.execute(
+            "SELECT amount, category, date, description FROM expenses"
+            "  WHERE id = ? AND user_id = ?",
+            (id, user_id),
+        ).fetchone()
+
+        # 404 rather than 403, and the same 404 for an id that belongs to somebody
+        # else and an id that was never issued — the reasoning /profile and the
+        # edit route both carry. It is also the answer a second submit of an
+        # already-deleted row gets: the SELECT finds nothing, and this abort runs
+        # before anything can touch the row that is no longer there.
+        if expense is None:
+            abort(404)
+
+        if request.method == "GET":
+            # Renders the confirmation and deletes nothing. Every field goes to the
+            # template because naming the row in full is what makes this reversible
+            # by hand — the screen holds everything needed to type the expense back
+            # in. The date is formatted here, through the same helper /profile uses,
+            # so one app never speaks about dates in two voices.
+            return render_template(
+                "expense_delete.html",
+                id=id,
+                amount=expense["amount"],
+                category=expense["category"],
+                day=format_day(date.fromisoformat(expense["date"])),
+                description=expense["description"],
+            )
+
+        # Scoped to the session's id a second time. The row was already proved to be
+        # this account's by the SELECT above, so the repetition is belt-and-braces —
+        # but it is the statement that actually destroys, and it should not depend on
+        # a check made several lines earlier to be safe on its own.
+        #
+        # One row, named by its primary key. Never `DELETE FROM expenses WHERE
+        # user_id = ?` without an id, which would empty the whole ledger, and never
+        # a second statement "cleaning up" after it: expenses is a leaf table, and
+        # the ON DELETE CASCADE in the schema points from here *at* users, not away.
+        conn.execute(
+            "DELETE FROM expenses WHERE id = ? AND user_id = ?", (id, user_id)
+        )
+        conn.commit()
+    finally:
+        # `with get_db() as conn` commits but does not close; see the get_db()
+        # docstring. Closing by hand is the only way to release the file.
+        conn.close()
+
+    # A redirect, not a render, for the reason add_expense() gives: a POST that
+    # answers with HTML leaves the delete sitting in the browser's history, where a
+    # refresh replays it. ?deleted=1 is the same notice pattern as ?added=1 and
+    # ?edited=1. No range parameters — those two do not carry them either.
+    return redirect(url_for("profile", deleted=1))
 
 
 if __name__ == "__main__":
